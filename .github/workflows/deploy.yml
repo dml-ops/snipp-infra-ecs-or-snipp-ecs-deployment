@@ -1,0 +1,76 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+          docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
+
+      - name: Build and push backend
+        run: |
+          docker build -t ${{ secrets.ECR_REGISTRY }}/urlshortener-backend:latest ./backend
+          docker push ${{ secrets.ECR_REGISTRY }}/urlshortener-backend:latest
+
+      - name: Build and push frontend
+        run: |
+          docker build -t ${{ secrets.ECR_REGISTRY }}/urlshortener-frontend:latest ./frontend
+          docker push ${{ secrets.ECR_REGISTRY }}/urlshortener-frontend:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Copy compose files to server
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ secrets.EC2_HOST }} \
+            'mkdir -p /home/ubuntu/app/caddy'
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
+            docker-compose.yml ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/app/
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
+            caddy/Caddyfile ubuntu@${{ secrets.EC2_HOST }}:/home/ubuntu/app/caddy/
+
+      - name: Deploy over SSH
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ secrets.EC2_HOST }} << ENDSSH
+          cd /home/ubuntu/app
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+            docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
+          printf 'DATABASE_URL=%s\nDOMAIN=%s\n' '${{ secrets.DATABASE_URL }}' '${{ secrets.DOMAIN }}' > .env
+          sed -i 's|build: ./backend|image: ${{ secrets.ECR_REGISTRY }}/urlshortener-backend:latest|' docker-compose.yml
+          sed -i 's|build: ./frontend|image: ${{ secrets.ECR_REGISTRY }}/urlshortener-frontend:latest|' docker-compose.yml
+          docker compose --env-file .env pull
+          docker compose --env-file .env up -d
+          ENDSSH
+
+      - name: Confirm health
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ secrets.EC2_HOST }} \
+            'curl -sf http://localhost/api/health'

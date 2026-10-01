@@ -24,7 +24,7 @@ jobs:
       - name: Log in to ECR
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
-          docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
+            docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
       - name: Build and push backend
         run: |
@@ -35,21 +35,6 @@ jobs:
         run: |
           docker build -t ${{ secrets.ECR_REGISTRY }}/urlshortener-frontend:latest ./frontend
           docker push ${{ secrets.ECR_REGISTRY }}/urlshortener-frontend:latest
-
-name: Deploy to EC2
-
-on:
-  push:
-    branches: [ main ]
-
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # Add your build and push steps here if they were truncated
 
   deploy:
     needs: build-and-push

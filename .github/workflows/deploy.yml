@@ -36,6 +36,21 @@ jobs:
           docker build -t ${{ secrets.ECR_REGISTRY }}/urlshortener-frontend:latest ./frontend
           docker push ${{ secrets.ECR_REGISTRY }}/urlshortener-frontend:latest
 
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Add your build and push steps here if they were truncated
+
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
@@ -59,11 +74,11 @@ jobs:
 
       - name: Deploy over SSH
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ secrets.EC2_HOST }} << ENDSSH
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ secrets.EC2_HOST }} << 'ENDSSH'
           cd /home/ubuntu/app
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
             docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
-          printf 'DATABASE_URL=%s\nDOMAIN=%s\n' '${{ secrets.DATABASE_URL }}' '${{ secrets.DOMAIN }}' > .env
+          printf 'DATABASE_URL=%s\nDOMAIN=%s\nDB_SSL=true\n' '${{ secrets.DATABASE_URL }}' '${{ secrets.DOMAIN }}' > .env
           sed -i 's|build: ./backend|image: ${{ secrets.ECR_REGISTRY }}/urlshortener-backend:latest|' docker-compose.yml
           sed -i 's|build: ./frontend|image: ${{ secrets.ECR_REGISTRY }}/urlshortener-frontend:latest|' docker-compose.yml
           docker compose --env-file .env pull

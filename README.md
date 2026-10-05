@@ -1,4 +1,4 @@
-# Snipp: A URL Shortener on AWS EC2
+# Snipp: A URL Shortener (3-tier web app) on AWS EC2
 
 Snipp is a small URL shortener that I deployed on a single AWS EC2 instance as a hands on way to learn cloud and DevOps. You paste in a long link, you get a short one back, and visiting the short link sends you to the original page.
 
